@@ -61,6 +61,22 @@ describe('deriveCashBalance + derivePositions — hand-checked fixture', () => {
     expect(deriveCashBalance(ledger).toFixed(2)).toBe('7869.65');
   });
 
+  it('matches an INDEPENDENT oracle (raw arithmetic, never touches cashEffect)', () => {
+    // Recompute terminal cash straight from the stated sign RULES with bare operators, so the
+    // 7869.65 literal above cannot merely be a pinned copy of the code's own output. If the
+    // module and this oracle ever disagree, one of them is wrong — a real correctness check.
+    const oracle =
+      10000 + // DEPOSIT
+      -(10 * 150 + 1) + // BUY  10@150 +1 fee
+      -(5 * 160 + 1) + // BUY   5@160 +1 fee
+      (4 * 170 - 1) + // SELL  4@170 -1 fee
+      11 * 0.24 + // DIVIDEND
+      -500 + // WITHDRAWAL
+      -9.99; // FEE
+    expect(new Decimal(oracle).toFixed(2)).toBe('7869.65');
+    expect(deriveCashBalance(ledger).toFixed(2)).toBe(new Decimal(oracle).toFixed(2));
+  });
+
   it('derives the average-cost position correctly (sell does not move the average)', () => {
     const pos = derivePositions(ledger).get('AAPL');
     expect(pos).toBeDefined();
