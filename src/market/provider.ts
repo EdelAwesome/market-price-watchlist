@@ -16,3 +16,14 @@ export interface QuoteProvider {
   /** Fetch latest quotes for many symbols in as few calls as the provider allows. */
   getQuotes(symbols: string[]): Promise<Map<string, Quote>>;
 }
+
+/** Transport error carrying an HTTP status, so the retry layer can decide retryability (429/5xx). */
+export class ProviderHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message?: string,
+  ) {
+    super(message ?? `provider HTTP ${status}`);
+    this.name = 'ProviderHttpError';
+  }
+}

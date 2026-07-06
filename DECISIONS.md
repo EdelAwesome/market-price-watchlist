@@ -60,6 +60,20 @@ One line of rationale per non-obvious choice. Append-only; supersede rather than
   to Alpaca 200/min; exponential backoff + jitter on 429/5xx.
 - **Market-hours aware:** poll US equities only during NYSE regular hours (holiday calendar).
 
+## Quote layer internals (slice 2)
+- **Provider-agnostic core built + tested against a MockQuoteProvider** with an injected clock;
+  the Alpaca snapshot parser is intentionally NOT finalized until an empirical `check:alpaca`
+  run on a real key confirms the response shape (avoids baking in an assumed schema).
+- **In-flight coalescing:** concurrent requests for the same symbol share one upstream promise
+  (dedup across the universe AND across concurrent callers → 1 call per symbol).
+- **Cache keeps last-known even past TTL** (no auto-evict in the store) so the degrade path can
+  serve it flagged `degraded` + not-alert-safe. TTL freshness uses `storedAt`; staleness uses the
+  quote's provider `asOf` — distinct clocks on purpose.
+- **Backoff:** full-jitter exponential (`delay ∈ [0, min(maxMs, base·2^n)]`); retry only on
+  429/5xx, fail fast on 4xx. Sleep + RNG injected for deterministic tests.
+- **Market-hours:** static NYSE holiday set (2025–2026, maintained as the calendar rolls); ET via
+  `Intl` (DST-correct, no tz dep); early-close half-days treated as full days for MVP.
+
 ## Staleness (two bounds, not one)
 - **DISPLAY staleness (lenient):** serve last-known quote, flag it in the UI; self-corrects on
   next refresh.
