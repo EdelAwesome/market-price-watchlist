@@ -1,5 +1,7 @@
-# One-command local infra + services. Web and worker images are added as their slices land;
-# postgres + redis are usable on their own now (`docker compose up postgres redis`) for dev.
+# One-command stack: postgres + redis + web + worker. Requires a .env file (cp .env.example .env
+# and fill SESSION_SECRET + ALPACA_* [+ RESEND_API_KEY for real emails]).
+#   docker compose up --build
+# pg/redis are internal-only (no host ports) so they don't collide with a local brew Postgres/Redis.
 services:
   postgres:
     image: postgres:16-alpine
@@ -7,8 +9,6 @@ services:
       POSTGRES_USER: mpw
       POSTGRES_PASSWORD: mpw
       POSTGRES_DB: mpw
-    ports:
-      - '5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,17 +19,46 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - '6379:6379'
-    # DB 0 = BullMQ queue (no eviction). DB 1 = quote cache (LRU). maxmemory-policy is set to
-    # noeviction globally; the cache layer bounds its own keys with per-key TTLs, so queue keys
-    # in db0 are never evicted. See DECISIONS.md "Redis eviction isolation".
+    # DB 0 = BullMQ queue (no eviction). DB 1 = quote cache. Queue keys are never evicted.
     command: ['redis-server', '--maxmemory-policy', 'noeviction']
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 5s
       retries: 10
+
+  web:
+    build: .
+    command: sh -c "npm run db:migrate && npx tsx src/index.ts"
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      PORT: '3000'
+      DATABASE_URL: postgres://mpw:mpw@postgres:5432/mpw
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: npx tsx src/worker/index.ts
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://mpw:mpw@postgres:5432/mpw
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
 
 volumes:
   pgdata:

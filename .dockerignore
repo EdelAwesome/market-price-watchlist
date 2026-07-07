@@ -1,0 +1,9 @@
+# Never copy host node_modules — native modules (argon2) are built for macOS and won't run in
+# the linux container. npm ci inside the image rebuilds them for linux.
+node_modules
+dist
+.env
+.git
+coverage
+*.log
+.DS_Store
