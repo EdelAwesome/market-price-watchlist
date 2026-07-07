@@ -43,6 +43,11 @@ One line of rationale per non-obvious choice. Append-only; supersede rather than
 - **Cost basis: average-cost** (not FIFO). SELLs remove shares at the current average; the
   average is unchanged by a sell. Unrealized P/L = (quote − avg_cost) × qty.
 - **Allocation:** position weight = position mkt value / Σ position mkt values. No HHI/sector.
+- **Reported `cash` is the honest ledger fold**, even when negative (a BUY with no recorded
+  DEPOSIT reports −cost, an "underfunded ledger" signal). Synthetic funding is a device INSIDE
+  the MWR math only; it never rewrites the reported cash balance.
+- **Missing quote degrades one holding, not the whole call**: that holding's market fields are
+  null; cash + other holdings still compute.
 
 ## Queue / scheduler
 - **BullMQ + Redis**, worker in a **separate process** from web. Chosen over node-cron because
