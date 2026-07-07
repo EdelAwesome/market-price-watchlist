@@ -13,6 +13,13 @@ export interface AlpacaConfig {
  * Uses the multi-symbol snapshot endpoint (`/v2/stocks/snapshots?symbols=...&feed=iex`), which
  * returns latest trade + latest quote + daily/prev-daily bars per symbol in ONE call. The `feed`
  * (iex vs sip) is what the free tier gates — the snapshot endpoint itself is available on free.
+ *
+ * VERIFIED against the real IEX payload (2026-07-07, HTTP 200):
+ *   { "AAPL": { latestTrade:{p,t,...}, latestQuote:{ap,bp,t,...}, dailyBar, prevDailyBar:{c}, minuteBar } }
+ *   - price  = latestTrade.p (fallback: latestQuote ap/bp midpoint)
+ *   - asOf   = latestTrade.t — ISO with NANOSECOND precision; JS Date truncates to ms (valid)
+ *   - prevClose = prevDailyBar.c, which is ABSENT for thin names (e.g. BRK.A) -> null
+ *   - unknown/bogus symbols are OMITTED from the response object -> simply skipped (no-quote)
  */
 export class AlpacaQuoteProvider implements QuoteProvider {
   readonly name = 'alpaca';

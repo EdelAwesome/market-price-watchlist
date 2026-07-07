@@ -18,7 +18,8 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
-    "check:alpaca": "tsx scripts/check-alpaca.ts"
+    "check:alpaca": "tsx scripts/check-alpaca.ts",
+    "prove:pipe": "tsx scripts/prove-pipe.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

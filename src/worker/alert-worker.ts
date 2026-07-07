@@ -55,7 +55,8 @@ async function loadActiveAlerts(): Promise<PollAlert[]> {
 
 export function startAlertWorkers(deps: AlertWorkerDeps): AlertWorkerHandles {
   const clock = deps.clock ?? systemClock;
-  const prefix = deps.queuePrefix ? `${deps.queuePrefix}:` : '';
+  // BullMQ forbids ':' in queue names, so use '-' as the prefix separator.
+  const prefix = deps.queuePrefix ? `${deps.queuePrefix}-` : '';
   const pollName = `${prefix}alert-poll`;
   const emailName = `${prefix}alert-email`;
   const connection = deps.connection;

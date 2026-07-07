@@ -8,6 +8,8 @@ import { portfolioRoutes } from './portfolios/routes.js';
 import { transactionRoutes } from './transactions/routes.js';
 import { alertRoutes } from './alerts/routes.js';
 import { marketRoutes } from './market/routes.js';
+import { analyticsRoutes } from './analytics/routes.js';
+import { makeQuoteService } from './market/service-factory.js';
 
 export async function buildApp(opts: { withMarket?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: env.NODE_ENV !== 'test' });
@@ -29,9 +31,11 @@ export async function buildApp(opts: { withMarket?: boolean } = {}): Promise<Fas
   await app.register(portfolioRoutes);
   await app.register(transactionRoutes);
   await app.register(alertRoutes);
-  // Market routes require Alpaca keys; allow the app to boot without them (e.g. tests).
+  // Market + analytics routes need Alpaca keys (live quotes); the app still boots without them.
   if (opts.withMarket ?? Boolean(env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY)) {
-    await app.register(marketRoutes);
+    const quoteService = makeQuoteService();
+    await app.register(marketRoutes(quoteService));
+    await app.register(analyticsRoutes(quoteService));
   }
 
   return app;
