@@ -9,3 +9,8 @@ const queryClient = postgres(env.DATABASE_URL, { max: 10 });
 export const db = drizzle(queryClient, { schema });
 export { schema };
 export type DB = typeof db;
+
+/** Close the pool so short-lived processes (scripts, integration tests) can exit cleanly. */
+export async function closeDb(): Promise<void> {
+  await queryClient.end({ timeout: 5 });
+}

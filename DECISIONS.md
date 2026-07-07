@@ -95,6 +95,22 @@ One line of rationale per non-obvious choice. Append-only; supersede rather than
   worker checks `email_status` before sending so a retry can't double-send. Failed sends retry
   via BullMQ; the trigger is never lost (event row already persisted).
 
+## Outbox idempotency — two DB-enforced layers (slice 5)
+- **Layer 1 — event creation (concurrency):** `INSERT ... ON CONFLICT (dedupe_key) DO NOTHING
+  RETURNING id`. Under N concurrent workers evaluating the same alert in the same cycle, the
+  UNIQUE index elects exactly ONE insert winner; losers get 0 rows and enqueue nothing. The
+  guarantee lives in the database, not in app-level locking. Verified by the centerpiece
+  integration test (2-way and 10-way concurrent inserts → exactly one row) and a two-worker
+  concurrent poll-cycle test → one event, one email.
+- **Layer 2 — email send (retry):** `email_status` guard skips an already-SENT event on a
+  sequential BullMQ retry; the provider idempotency key (= event id) prevents duplicate DELIVERY
+  in the crash-after-send window. Failure marks FAILED (trigger persisted) for retry.
+- **Poll cycle** is provider-agnostic (injected deps), unit-tested against mocks: dedup universe,
+  evaluate FSM, persist transitions, and gate email enqueue on the outbox insert winner.
+- **Integration layer (BullMQ repeatable scheduler + retry, Resend sender, live Alpaca fetch)
+  lands with the installs/keys** — the mock-testable core above is complete and does not depend
+  on it.
+
 ## Auth
 - **Opaque session cookie** (httpOnly, SameSite=Lax; argon2id password hash) over JWT —
   simpler server-side revocation for a stateful web app.
