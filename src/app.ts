@@ -6,6 +6,7 @@ import { authPlugin } from './auth/plugin.js';
 import { authRoutes } from './auth/routes.js';
 import { portfolioRoutes } from './portfolios/routes.js';
 import { transactionRoutes } from './transactions/routes.js';
+import { alertRoutes } from './alerts/routes.js';
 import { marketRoutes } from './market/routes.js';
 
 export async function buildApp(opts: { withMarket?: boolean } = {}): Promise<FastifyInstance> {
@@ -27,6 +28,7 @@ export async function buildApp(opts: { withMarket?: boolean } = {}): Promise<Fas
   await app.register(authRoutes);
   await app.register(portfolioRoutes);
   await app.register(transactionRoutes);
+  await app.register(alertRoutes);
   // Market routes require Alpaca keys; allow the app to boot without them (e.g. tests).
   if (opts.withMarket ?? Boolean(env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY)) {
     await app.register(marketRoutes);
