@@ -102,7 +102,10 @@ export async function processEmailJob(
         price: event.triggerPrice,
         triggeredAt: event.triggeredAt,
       },
-      eventId, // idempotency key
+      // Idempotency key = the trigger's dedupe_key. Resend honors an `Idempotency-Key` header
+      // and dedupes identical sends for 24h (verified against Resend docs) — this closes the
+      // failure-after-provider-accept window for any retry within 24h. See README limitations.
+      event.dedupeKey,
     );
     await database
       .update(schema.alertEvents)

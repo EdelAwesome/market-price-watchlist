@@ -101,7 +101,7 @@ describe('outbox — email send is idempotent on retry', () => {
     expect(await processEmailJob(eventId!, sender)).toBe('sent');
     expect(sender.sends).toHaveLength(1);
     expect(sender.sends[0]!.email.to).toBe(email);
-    expect(sender.sends[0]!.key).toBe(eventId); // idempotency key = event id
+    expect(sender.sends[0]!.key).toBe(`${alertId}:mail`); // idempotency key = the trigger dedupe_key
 
     // Retry the job (as BullMQ would): must NOT send again.
     expect(await processEmailJob(eventId!, sender)).toBe('skipped');

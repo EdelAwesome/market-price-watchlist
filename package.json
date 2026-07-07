@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev:web": "tsx watch src/index.ts",
+    "dev:worker": "tsx watch src/worker/index.ts",
     "build": "tsc -p tsconfig.json",
     "start:web": "node dist/index.js",
+    "start:worker": "node dist/worker/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -19,11 +23,13 @@
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
     "argon2": "^0.41.1",
+    "bullmq": "^5.79.3",
     "decimal.js": "^10.4.3",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.3",
     "fastify": "^5.2.1",
     "fastify-type-provider-zod": "^4.0.2",
+    "ioredis": "^5.11.1",
     "postgres": "^3.4.5",
     "zod": "^3.24.1"
   },
