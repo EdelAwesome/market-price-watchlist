@@ -173,6 +173,11 @@ crashes and never fires on the stale value.
 
 These are deliberate scope decisions — knowing what to skip matters as much as closing the gaps.
 
+- **The real-email (Resend) path is implemented but unexercised.** No `RESEND_API_KEY` was
+  configured, so the alert→email pipe was proven end-to-end only with the `LoggingSender` (the
+  event transitions to `SENT`, the email is logged rather than delivered). The `ResendSender` and
+  its `Idempotency-Key` handling are written but have **not** been run against the live Resend API;
+  set `RESEND_API_KEY` and run `npm run prove:pipe` to exercise an actual send.
 - **Email delivery is at-least-once, not exactly-once.** The Resend `Idempotency-Key` (keyed on
   our `dedupe_key`) dedupes duplicate **send requests** for 24h — it does **not** make *delivery*
   exactly-once. The residual double-send is a retry that lands **>24h** after a success whose
