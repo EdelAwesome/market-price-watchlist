@@ -22,6 +22,7 @@ export function marketRoutes(svc: QuoteService) {
           [...quotes.values()].map((q) => [
             q.symbol,
             {
+              symbol: q.symbol,
               price: q.price,
               prevClose: q.prevClose,
               asOf: q.asOf.toISOString(),

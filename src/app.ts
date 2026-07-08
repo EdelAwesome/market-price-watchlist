@@ -1,5 +1,8 @@
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
+import fastifyStatic from '@fastify/static';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
 import { authPlugin } from './auth/plugin.js';
@@ -16,6 +19,10 @@ export async function buildApp(opts: { withMarket?: boolean } = {}): Promise<Fas
 
   await app.register(cookie, { secret: env.SESSION_SECRET });
   await app.register(authPlugin);
+
+  // Serve the minimal single-page UI (public/index.html) at the root.
+  const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
+  await app.register(fastifyStatic, { root: publicDir });
 
   app.setErrorHandler((err: FastifyError, _req, reply) => {
     if (err instanceof ZodError) {

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Market Watchlist</title>
+    <style>
+      :root { font-family: system-ui, -apple-system, sans-serif; color: #1a1a1a; }
+      body { margin: 0; background: #f5f6f8; }
+      header { background: #12233b; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+      header h1 { font-size: 18px; margin: 0; }
+      main { max-width: 1000px; margin: 20px auto; padding: 0 16px; display: grid; gap: 16px; }
+      .card { background: #fff; border: 1px solid #e2e5ea; border-radius: 8px; padding: 16px; }
+      .card h2 { font-size: 15px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .04em; color: #566; }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid #eee; }
+      th:first-child, td:first-child { text-align: left; }
+      input, select, button { font: inherit; padding: 6px 8px; border: 1px solid #ccd; border-radius: 5px; }
+      button { background: #2a5db0; color: #fff; border: none; cursor: pointer; }
+      button.secondary { background: #e6e8ec; color: #223; }
+      button.danger { background: #b03a3a; }
+      button:hover { opacity: .92; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .muted { color: #789; font-size: 13px; }
+      .pos { color: #147a3d; } .neg { color: #b03a3a; }
+      .badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px; color: #fff; }
+      .b-ARMED { background: #147a3d; } .b-TRIGGERED { background: #d07b12; }
+      .b-COOLDOWN { background: #2a5db0; } .b-DISABLED { background: #889; }
+      .b-STALE { background: #d07b12; } .b-DEGRADED { background: #b03a3a; } .b-FRESH { background: #147a3d; }
+      .note { background: #fff7e6; border: 1px solid #f0d9a8; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: #7a5a12; }
+      .err { color: #b03a3a; font-size: 13px; min-height: 16px; }
+      .pill { display: inline-block; padding: 4px 10px; border-radius: 6px; background: #eef; margin: 2px; cursor: pointer; }
+      .pill.active { background: #2a5db0; color: #fff; }
+      label { font-size: 13px; color: #566; display: flex; flex-direction: column; gap: 2px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Market Watchlist</h1>
+      <div id="who"></div>
+    </header>
+    <main id="app"></main>
+
+    <script>
+      const $ = (h) => { const t = document.createElement('template'); t.innerHTML = h.trim(); return t.content.firstChild; };
+      const app = document.getElementById('app');
+      const who = document.getElementById('who');
+      let state = { user: null, portfolios: [], selected: null };
+
+      async function api(path, opts = {}) {
+        const res = await fetch(path, { headers: { 'content-type': 'application/json' }, ...opts });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || JSON.stringify(body.details || body) || res.status);
+        return body;
+      }
+      const money = (s) => (s == null ? '—' : Number(s).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      const signClass = (s) => (Number(s) >= 0 ? 'pos' : 'neg');
+
+      // ---------- auth ----------
+      async function boot() {
+        try { const { user } = await api('/auth/me'); state.user = user; await dashboard(); }
+        catch { authView(); }
+      }
+      function authView() {
+        who.innerHTML = '';
+        app.innerHTML = '';
+        const err = $(`<div class="err"></div>`);
+        const card = $(`<div class="card" style="max-width:360px">
+          <h2>Sign in</h2>
+          <div class="row"><input id="email" placeholder="email" style="flex:1"/></div>
+          <div class="row" style="margin-top:8px"><input id="pw" type="password" placeholder="password (8+ chars)" style="flex:1"/></div>
+          <div class="row" style="margin-top:12px"><button id="login">Log in</button><button id="signup" class="secondary">Sign up</button></div>
+        </div>`);
+        card.append(err);
+        app.append(card);
+        const creds = () => ({ email: card.querySelector('#email').value, password: card.querySelector('#pw').value });
+        const go = (path) => async () => {
+          try { const { user } = await api(path, { method: 'POST', body: JSON.stringify(creds()) }); state.user = user; await dashboard(); }
+          catch (e) { err.textContent = e.message; }
+        };
+        card.querySelector('#login').onclick = go('/auth/login');
+        card.querySelector('#signup').onclick = go('/auth/signup');
+      }
+
+      // ---------- dashboard ----------
+      async function dashboard() {
+        who.innerHTML = '';
+        who.append($(`<span class="muted" style="color:#cdd">${state.user.email}</span>`));
+        const out = $(`<button class="secondary" style="margin-left:10px">Log out</button>`);
+        out.onclick = async () => { await api('/auth/logout', { method: 'POST' }); state = { user: null, portfolios: [], selected: null }; authView(); };
+        who.append(out);
+        app.innerHTML = '';
+        app.append(portfoliosCard(), quotesCard(), await portfolioDetail(), alertsCard());
+        await refreshPortfolios();
+      }
+
+      function portfoliosCard() {
+        const card = $(`<div class="card"><h2>Portfolios</h2><div class="row" id="plist"></div>
+          <div class="row" style="margin-top:10px"><input id="pname" placeholder="new portfolio name"/><button id="pcreate">Create</button></div></div>`);
+        card.querySelector('#pcreate').onclick = async () => {
+          const name = card.querySelector('#pname').value.trim(); if (!name) return;
+          await api('/portfolios', { method: 'POST', body: JSON.stringify({ name }) });
+          card.querySelector('#pname').value = ''; await refreshPortfolios();
+        };
+        return card;
+      }
+      async function refreshPortfolios() {
+        const { portfolios } = await api('/portfolios');
+        state.portfolios = portfolios;
+        if (!state.selected && portfolios[0]) state.selected = portfolios[0].id;
+        const list = document.getElementById('plist'); list.innerHTML = '';
+        for (const p of portfolios) {
+          const pill = $(`<span class="pill ${p.id === state.selected ? 'active' : ''}">${p.name}</span>`);
+          pill.onclick = async () => { state.selected = p.id; await refreshDetail(); await refreshPortfolios(); };
+          list.append(pill);
+        }
+        await refreshDetail();
+      }
+
+      // ---------- portfolio detail: transactions + analytics ----------
+      async function portfolioDetail() { return $(`<div class="card" id="detail"><h2>Portfolio</h2><div class="muted">Select or create a portfolio.</div></div>`); }
+      async function refreshDetail() {
+        const el = document.getElementById('detail'); if (!el) return;
+        if (!state.selected) { el.innerHTML = '<h2>Portfolio</h2><div class="muted">No portfolio selected.</div>'; return; }
+        let a;
+        try { ({ analytics: a } = await api('/portfolios/' + state.selected + '/analytics')); }
+        catch (e) { el.innerHTML = '<h2>Portfolio</h2><div class="err">' + e.message + '</div>'; return; }
+
+        const mwr = a.mwr.available ? (a.mwr.rate * 100).toFixed(2) + '%' : 'unavailable — ' + (a.mwr.note || 'add a deposit');
+        const recon = a.mwr.syntheticFunding
+          ? `<div class="note">Reported cash (${money(a.cash)}) is the raw ledger — no deposit was recorded. MWR assumes your first purchase was funded by an equal deposit on its date, so the return isn't distorted by the missing cash entry. Add a DEPOSIT to reconcile.</div>`
+          : '';
+        const holdings = a.holdings.map((h) => `<tr>
+          <td>${h.symbol}</td><td>${h.quantity}</td><td>${money(h.avgCost)}</td>
+          <td>${h.price ? money(h.price) : '—'}</td><td>${money(h.marketValue)}</td>
+          <td class="${signClass(h.unrealizedPl)}">${money(h.unrealizedPl)}${h.unrealizedPlPct ? ` (${h.unrealizedPlPct}%)` : ''}</td>
+          <td>${h.weight}%</td></tr>`).join('');
+
+        el.innerHTML = `<h2>Portfolio — analytics (live)</h2>
+          <div class="row" style="gap:20px;margin-bottom:10px">
+            <div><div class="muted">Cash</div><b class="${signClass(a.cash)}">${money(a.cash)}</b></div>
+            <div><div class="muted">Holdings</div><b>${money(a.holdingsValue)}</b></div>
+            <div><div class="muted">Total value</div><b>${money(a.totalValue)}</b></div>
+            <div><div class="muted">MWR (XIRR)</div><b>${mwr}</b></div>
+          </div>${recon}
+          <table style="margin-top:10px"><thead><tr><th>Symbol</th><th>Qty</th><th>Avg cost</th><th>Price</th><th>Mkt value</th><th>Unrealized P/L</th><th>Weight</th></tr></thead>
+          <tbody>${holdings || '<tr><td colspan="7" class="muted">No open positions.</td></tr>'}</tbody></table>`;
+        el.append(txnForm());
+      }
+      function txnForm() {
+        const f = $(`<div style="margin-top:14px">
+          <div class="muted" style="margin-bottom:6px">Add transaction</div>
+          <div class="row">
+            <select id="ttype"><option>DEPOSIT</option><option>BUY</option><option>SELL</option><option>DIVIDEND</option><option>WITHDRAWAL</option><option>FEE</option></select>
+            <input id="tsym" placeholder="symbol" style="width:80px"/>
+            <input id="tqty" placeholder="qty" style="width:70px" value="1"/>
+            <input id="tprice" placeholder="price" style="width:80px" value="0"/>
+            <input id="tfees" placeholder="fees" style="width:60px" value="0"/>
+            <input id="ttime" type="date"/>
+            <button id="tadd">Add</button>
+          </div><div class="err" id="terr"></div></div>`);
+        f.querySelector('#ttime').value = new Date().toISOString().slice(0, 10);
+        f.querySelector('#tadd').onclick = async () => {
+          const body = {
+            type: f.querySelector('#ttype').value, symbol: f.querySelector('#tsym').value || undefined,
+            quantity: +f.querySelector('#tqty').value, price: +f.querySelector('#tprice').value,
+            fees: +f.querySelector('#tfees').value, tradeTime: new Date(f.querySelector('#ttime').value).toISOString(),
+          };
+          try { await api('/portfolios/' + state.selected + '/transactions', { method: 'POST', body: JSON.stringify(body) }); await refreshDetail(); }
+          catch (e) { f.querySelector('#terr').textContent = e.message; }
+        };
+        return f;
+      }
+
+      // ---------- live quotes ----------
+      function quotesCard() {
+        const card = $(`<div class="card"><h2>Live quotes <span class="muted">(cached / dedup / staleness-flagged)</span></h2>
+          <div class="row"><input id="qsym" value="AAPL,MSFT,BRK.A" style="flex:1"/><button id="qref">Refresh</button></div>
+          <div id="qbody" style="margin-top:10px"></div></div>`);
+        const refresh = async () => {
+          const syms = card.querySelector('#qsym').value.trim(); if (!syms) return;
+          try {
+            const { quotes } = await api('/quotes?symbols=' + encodeURIComponent(syms));
+            const rows = Object.values(quotes).map((q) => {
+              const badge = q.degraded ? '<span class="badge b-DEGRADED">DEGRADED</span>' : q.stale ? '<span class="badge b-STALE">STALE</span>' : '<span class="badge b-FRESH">FRESH</span>';
+              return `<tr><td>${q.symbol}</td><td>${money(q.price)}</td><td>${q.prevClose ? money(q.prevClose) : '—'}</td>
+                <td class="muted">${new Date(q.asOf).toLocaleString()}</td><td>${badge}</td></tr>`;
+            }).join('');
+            card.querySelector('#qbody').innerHTML = `<table><thead><tr><th>Symbol</th><th>Price</th><th>Prev close</th><th>As of</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
+          } catch (e) { card.querySelector('#qbody').innerHTML = '<div class="err">' + e.message + '</div>'; }
+        };
+        card.querySelector('#qref').onclick = refresh;
+        setTimeout(refresh, 0);
+        return card;
+      }
+
+      // ---------- alerts ----------
+      function alertsCard() {
+        const card = $(`<div class="card"><h2>Price alerts</h2><div id="abody"></div>
+          <div class="row" style="margin-top:12px">
+            <input id="asym" placeholder="symbol" style="width:80px"/>
+            <select id="adir"><option>ABOVE</option><option>BELOW</option></select>
+            <input id="athr" placeholder="threshold" style="width:90px"/>
+            <select id="apol"><option>ONE_SHOT</option><option>RECURRING</option></select>
+            <input id="acool" placeholder="cooldown s" style="width:90px" value="3600"/>
+            <input id="ahys" placeholder="hysteresis %" style="width:100px" value="0"/>
+            <button id="acreate">Create alert</button>
+          </div><div class="err" id="aerr"></div></div>`);
+        card.querySelector('#acreate').onclick = async () => {
+          try {
+            await api('/alerts', { method: 'POST', body: JSON.stringify({
+              symbol: card.querySelector('#asym').value, direction: card.querySelector('#adir').value,
+              threshold: +card.querySelector('#athr').value, rearmPolicy: card.querySelector('#apol').value,
+              cooldownSeconds: +card.querySelector('#acool').value, hysteresisPct: +card.querySelector('#ahys').value,
+            }) });
+            card.querySelector('#asym').value = ''; card.querySelector('#athr').value = ''; await refreshAlerts();
+          } catch (e) { card.querySelector('#aerr').textContent = e.message; }
+        };
+        setTimeout(refreshAlerts, 0);
+        return card;
+      }
+      async function refreshAlerts() {
+        const body = document.getElementById('abody'); if (!body) return;
+        const { alerts } = await api('/alerts');
+        if (!alerts.length) { body.innerHTML = '<div class="muted">No alerts yet.</div>'; return; }
+        const rows = alerts.map((a) => `<tr>
+          <td>${a.symbol}</td><td>${a.direction} ${money(a.threshold)}</td>
+          <td><span class="badge b-${a.state}">${a.state}</span></td>
+          <td>${a.rearmPolicy}</td><td>${a.cooldownSeconds}s</td>
+          <td><button class="secondary" data-arm="${a.id}">Arm</button>
+              <button class="secondary" data-dis="${a.id}">Disable</button>
+              <button class="danger" data-del="${a.id}">Delete</button></td></tr>`).join('');
+        body.innerHTML = `<table><thead><tr><th>Symbol</th><th>Condition</th><th>State</th><th>Re-arm</th><th>Cooldown</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+        body.querySelectorAll('[data-arm]').forEach((b) => (b.onclick = async () => { await api('/alerts/' + b.dataset.arm + '/arm', { method: 'POST' }); refreshAlerts(); }));
+        body.querySelectorAll('[data-dis]').forEach((b) => (b.onclick = async () => { await api('/alerts/' + b.dataset.dis + '/disable', { method: 'POST' }); refreshAlerts(); }));
+        body.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { await api('/alerts/' + b.dataset.del, { method: 'DELETE' }); refreshAlerts(); }));
+      }
+
+      boot();
+    </script>
+  </body>
+</html>
