@@ -25,6 +25,8 @@ export interface MwrResult {
   available: boolean;
   rate: number | null; // annualized money-weighted return (e.g. 0.11 = 11%)
   syntheticFunding: boolean; // funding inferred from the first BUY (no explicit deposit)
+  terminalValue: string; // the value MWR annualizes to (holdings + funded cash); differs from
+  // reported totalValue when syntheticFunding is applied — the UI shows it to reconcile.
   note?: string;
 }
 
@@ -138,25 +140,43 @@ function computeMwr(
   }
 
   const terminal = holdingsValue.add(terminalCash);
+  const terminalValue = terminal.toFixed(2);
   if (!terminal.isZero()) {
     cashflows.push({ date: valuationDate, amount: terminal.toNumber() });
   }
 
   const rate = xirr(cashflows);
   if (rate == null) {
-    return {
-      available: false,
-      rate: null,
-      syntheticFunding,
-      note: 'unavailable — add a deposit to fund the account',
-    };
+    return { available: false, rate: null, syntheticFunding, terminalValue, note: unavailableReason(cashflows) };
   }
   return {
     available: true,
     rate,
     syntheticFunding,
+    terminalValue,
     ...(syntheticFunding
       ? { note: 'funding inferred from first purchase; add explicit deposits for exact MWR' }
       : {}),
   };
+}
+
+/**
+ * Why XIRR couldn't resolve — two distinct cases with different advice:
+ *  - no external funding at all -> add a deposit.
+ *  - funding exists but every cashflow lands on the valuation date (zero elapsed time) -> a
+ *    same-day deposit wouldn't help; it must be dated on or before the first purchase.
+ */
+function unavailableReason(cashflows: Cashflow[]): string {
+  const hasNeg = cashflows.some((c) => c.amount < 0);
+  const hasPos = cashflows.some((c) => c.amount > 0);
+  if (cashflows.length < 2 || !hasNeg || !hasPos) {
+    return 'unavailable — add a deposit dated on or before your first purchase to fund the account';
+  }
+  const times = cashflows.map((c) => c.date.getTime());
+  const spanMs = Math.max(...times) - Math.min(...times);
+  if (spanMs < 24 * 60 * 60 * 1000) {
+    // Sub-day span: the annualized rate is undefined/explosive. A same-day deposit won't fix it.
+    return 'unavailable — your cashflows span less than a day, so there is no meaningful period to annualize; date your funding deposit on or before your first purchase';
+  }
+  return 'unavailable';
 }
