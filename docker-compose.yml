@@ -33,6 +33,7 @@ services:
     env_file: .env
     environment:
       NODE_ENV: development
+      COOKIE_SECURE: 'false' # local http demo; the app defaults to secure cookies otherwise
       PORT: '3000'
       DATABASE_URL: postgres://mpw:mpw@postgres:5432/mpw
       REDIS_URL: redis://redis:6379

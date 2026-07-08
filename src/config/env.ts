@@ -6,6 +6,12 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
   SESSION_SECRET: z.string().min(16, 'SESSION_SECRET must be >= 16 chars'),
+  // Session-cookie Secure flag. DEFAULT TRUE (production-safe); set to false only for local http
+  // (dev / compose over http). "false"/"0"/"no" -> false; anything else (incl. unset) -> true.
+  COOKIE_SECURE: z
+    .string()
+    .optional()
+    .transform((v) => (v == null ? true : !['false', '0', 'no'].includes(v.toLowerCase()))),
 
   DATABASE_URL: z.string().url(),
 

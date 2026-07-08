@@ -14,7 +14,7 @@ const credentials = z.object({
 const cookieOpts = {
   httpOnly: true,
   sameSite: 'lax' as const,
-  secure: env.NODE_ENV === 'production',
+  secure: env.COOKIE_SECURE, // default true; set COOKIE_SECURE=false only for local http (dev/compose)
   path: '/',
   maxAge: 60 * 60 * 24 * 7,
 };

@@ -126,9 +126,12 @@
         try { ({ analytics: a } = await api('/portfolios/' + state.selected + '/analytics')); }
         catch (e) { el.innerHTML = '<h2>Portfolio</h2><div class="err">' + e.message + '</div>'; return; }
 
-        const mwr = a.mwr.available ? (a.mwr.rate * 100).toFixed(2) + '%' : 'unavailable — ' + (a.mwr.note || 'add a deposit');
-        const recon = a.mwr.syntheticFunding
-          ? `<div class="note">Reported cash (${money(a.cash)}) is the raw ledger — no deposit was recorded. MWR assumes your first purchase was funded by an equal deposit on its date, so the return isn't distorted by the missing cash entry. Add a DEPOSIT to reconcile.</div>`
+        // note already reads "unavailable — add a deposit..."; don't prefix it again.
+        const mwr = a.mwr.available ? (a.mwr.rate * 100).toFixed(2) + '%' : (a.mwr.note || 'unavailable');
+        // Only claim synthetic funding when MWR ACTUALLY resolved via it, else the note would
+        // contradict an "unavailable" MWR.
+        const recon = a.mwr.available && a.mwr.syntheticFunding
+          ? `<div class="note">Reported cash (${money(a.cash)}) is the raw ledger — no deposit was recorded. MWR was computed by treating your first purchase as its own funding (a synthetic deposit on that date), so the return isn't distorted by the missing cash entry. Add a DEPOSIT to reconcile the cash figure.</div>`
           : '';
         const holdings = a.holdings.map((h) => `<tr>
           <td>${h.symbol}</td><td>${h.quantity}</td><td>${money(h.avgCost)}</td>
@@ -150,24 +153,58 @@
       function txnForm() {
         const f = $(`<div style="margin-top:14px">
           <div class="muted" style="margin-bottom:6px">Add transaction</div>
-          <div class="row">
-            <select id="ttype"><option>DEPOSIT</option><option>BUY</option><option>SELL</option><option>DIVIDEND</option><option>WITHDRAWAL</option><option>FEE</option></select>
-            <input id="tsym" placeholder="symbol" style="width:80px"/>
-            <input id="tqty" placeholder="qty" style="width:70px" value="1"/>
-            <input id="tprice" placeholder="price" style="width:80px" value="0"/>
-            <input id="tfees" placeholder="fees" style="width:60px" value="0"/>
-            <input id="ttime" type="date"/>
+          <div class="row" style="align-items:flex-end">
+            <label>Type<select id="ttype"><option>DEPOSIT</option><option>BUY</option><option>SELL</option><option>DIVIDEND</option><option>WITHDRAWAL</option><option>FEE</option></select></label>
+            <label id="l_sym">Symbol<input id="tsym" placeholder="AAPL" style="width:90px"/></label>
+            <label id="l_qty">Quantity (shares)<input id="tqty" type="number" min="0" step="any" style="width:130px"/></label>
+            <label id="l_price">Price ($ / share)<input id="tprice" type="number" min="0" step="any" style="width:120px"/></label>
+            <label id="l_amt">Amount ($)<input id="tamt" type="number" min="0" step="any" style="width:120px"/></label>
+            <label id="l_fees">Fees ($)<input id="tfees" type="number" min="0" step="any" value="0" style="width:90px"/></label>
+            <label>Date<input id="ttime" type="date"/></label>
             <button id="tadd">Add</button>
           </div><div class="err" id="terr"></div></div>`);
-        f.querySelector('#ttime').value = new Date().toISOString().slice(0, 10);
-        f.querySelector('#tadd').onclick = async () => {
-          const body = {
-            type: f.querySelector('#ttype').value, symbol: f.querySelector('#tsym').value || undefined,
-            quantity: +f.querySelector('#tqty').value, price: +f.querySelector('#tprice').value,
-            fees: +f.querySelector('#tfees').value, tradeTime: new Date(f.querySelector('#ttime').value).toISOString(),
-          };
+        const el = (id) => f.querySelector(id);
+        el('#ttime').value = new Date().toISOString().slice(0, 10);
+        const show = (node, on) => (node.style.display = on ? '' : 'none');
+        function updateFields() {
+          const t = el('#ttype').value;
+          const trade = t === 'BUY' || t === 'SELL';
+          const div = t === 'DIVIDEND';
+          const cash = t === 'DEPOSIT' || t === 'WITHDRAWAL' || t === 'FEE';
+          show(el('#l_sym'), trade || div);
+          show(el('#l_qty'), trade);
+          show(el('#l_price'), trade);
+          show(el('#l_fees'), trade);
+          show(el('#l_amt'), div || cash);
+          el('#l_amt').firstChild.textContent = div ? 'Amount ($ total dividend)' : 'Amount ($)';
+        }
+        el('#ttype').onchange = updateFields;
+        updateFields();
+        el('#tadd').onclick = async () => {
+          const t = el('#ttype').value;
+          const err = (m) => (el('#terr').textContent = m);
+          err('');
+          const num = (id) => Number(el(id).value);
+          const when = new Date(el('#ttime').value).toISOString();
+          let body;
+          if (t === 'BUY' || t === 'SELL') {
+            const sym = el('#tsym').value.trim();
+            if (!sym) return err('Symbol is required.');
+            if (!(num('#tqty') > 0)) return err('Quantity must be greater than 0.');
+            if (!(num('#tprice') > 0)) return err('Price must be greater than 0.');
+            body = { type: t, symbol: sym, quantity: num('#tqty'), price: num('#tprice'), fees: num('#tfees') || 0, tradeTime: when };
+          } else if (t === 'DIVIDEND') {
+            const sym = el('#tsym').value.trim();
+            if (!sym) return err('Symbol is required.');
+            if (!(num('#tamt') > 0)) return err('Amount must be greater than 0.');
+            body = { type: t, symbol: sym, quantity: 1, price: num('#tamt'), tradeTime: when };
+          } else {
+            // DEPOSIT / WITHDRAWAL / FEE — a single cash amount (stored as qty 1 x price).
+            if (!(num('#tamt') > 0)) return err('Amount must be greater than 0.');
+            body = { type: t, quantity: 1, price: num('#tamt'), tradeTime: when };
+          }
           try { await api('/portfolios/' + state.selected + '/transactions', { method: 'POST', body: JSON.stringify(body) }); await refreshDetail(); }
-          catch (e) { f.querySelector('#terr').textContent = e.message; }
+          catch (e) { err(e.message); }
         };
         return f;
       }
@@ -197,24 +234,32 @@
       // ---------- alerts ----------
       function alertsCard() {
         const card = $(`<div class="card"><h2>Price alerts</h2><div id="abody"></div>
-          <div class="row" style="margin-top:12px">
-            <input id="asym" placeholder="symbol" style="width:80px"/>
-            <select id="adir"><option>ABOVE</option><option>BELOW</option></select>
-            <input id="athr" placeholder="threshold" style="width:90px"/>
-            <select id="apol"><option>ONE_SHOT</option><option>RECURRING</option></select>
-            <input id="acool" placeholder="cooldown s" style="width:90px" value="3600"/>
-            <input id="ahys" placeholder="hysteresis %" style="width:100px" value="0"/>
+          <div class="row" style="margin-top:12px;align-items:flex-end">
+            <label>Symbol<input id="asym" placeholder="AAPL" style="width:90px"/></label>
+            <label>Direction<select id="adir"><option>ABOVE</option><option>BELOW</option></select></label>
+            <label>Threshold ($)<input id="athr" type="number" min="0" step="any" style="width:110px"/></label>
+            <label>Re-arm<select id="apol"><option>ONE_SHOT</option><option>RECURRING</option></select></label>
+            <label>Cooldown (seconds)<input id="acool" type="number" min="0" style="width:130px" value="3600"/></label>
+            <label>Hysteresis (% band)<input id="ahys" type="number" min="0" max="100" step="any" style="width:130px" value="0"/></label>
             <button id="acreate">Create alert</button>
-          </div><div class="err" id="aerr"></div></div>`);
+          </div>
+          <div class="muted" style="margin-top:6px">Cooldown = seconds before an alert can re-arm. Hysteresis = price must retreat past the threshold by this % of it before re-arming (0 = re-arm as soon as it crosses back). Re-arm only applies to RECURRING alerts.</div>
+          <div class="err" id="aerr"></div></div>`);
         card.querySelector('#acreate').onclick = async () => {
+          const err = (m) => (card.querySelector('#aerr').textContent = m);
+          err('');
+          const sym = card.querySelector('#asym').value.trim();
+          const thr = Number(card.querySelector('#athr').value);
+          if (!sym) return err('Symbol is required.');
+          if (!(thr > 0)) return err('Threshold must be greater than 0.');
           try {
             await api('/alerts', { method: 'POST', body: JSON.stringify({
-              symbol: card.querySelector('#asym').value, direction: card.querySelector('#adir').value,
-              threshold: +card.querySelector('#athr').value, rearmPolicy: card.querySelector('#apol').value,
+              symbol: sym, direction: card.querySelector('#adir').value,
+              threshold: thr, rearmPolicy: card.querySelector('#apol').value,
               cooldownSeconds: +card.querySelector('#acool').value, hysteresisPct: +card.querySelector('#ahys').value,
             }) });
             card.querySelector('#asym').value = ''; card.querySelector('#athr').value = ''; await refreshAlerts();
-          } catch (e) { card.querySelector('#aerr').textContent = e.message; }
+          } catch (e) { err(e.message); }
         };
         setTimeout(refreshAlerts, 0);
         return card;
@@ -226,11 +271,11 @@
         const rows = alerts.map((a) => `<tr>
           <td>${a.symbol}</td><td>${a.direction} ${money(a.threshold)}</td>
           <td><span class="badge b-${a.state}">${a.state}</span></td>
-          <td>${a.rearmPolicy}</td><td>${a.cooldownSeconds}s</td>
+          <td>${a.rearmPolicy}</td><td>${a.cooldownSeconds}s</td><td>${Number(a.hysteresisPct)}%</td>
           <td><button class="secondary" data-arm="${a.id}">Arm</button>
               <button class="secondary" data-dis="${a.id}">Disable</button>
               <button class="danger" data-del="${a.id}">Delete</button></td></tr>`).join('');
-        body.innerHTML = `<table><thead><tr><th>Symbol</th><th>Condition</th><th>State</th><th>Re-arm</th><th>Cooldown</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+        body.innerHTML = `<table><thead><tr><th>Symbol</th><th>Condition</th><th>State</th><th>Re-arm</th><th>Cooldown</th><th>Hysteresis</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
         body.querySelectorAll('[data-arm]').forEach((b) => (b.onclick = async () => { await api('/alerts/' + b.dataset.arm + '/arm', { method: 'POST' }); refreshAlerts(); }));
         body.querySelectorAll('[data-dis]').forEach((b) => (b.onclick = async () => { await api('/alerts/' + b.dataset.dis + '/disable', { method: 'POST' }); refreshAlerts(); }));
         body.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { await api('/alerts/' + b.dataset.del, { method: 'DELETE' }); refreshAlerts(); }));
