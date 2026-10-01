@@ -1,7 +1,6 @@
 # Market Price Watchlist
 
-A markets watchlist + price-alert web app built to demonstrate real backend engineering, not a
-fetch-and-display ticker. The two things it takes seriously:
+A markets watchlist + price-alert web app. The two things it takes seriously:
 
 1. **Returns are computed correctly under cashflows.** Positions and P&L are *derived* from a
    transaction ledger — never a stored `shares` number — and the money-weighted return is a real
